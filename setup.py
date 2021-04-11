@@ -12,8 +12,17 @@ if TESTING:
     setup_requirements += ['pytest-runner']
 test_requirements = ['pytest', 'pytest-cov']
 
+extras = {
+    "server-toml": ["toml"],
+    "server-yaml": ["pyyaml"],
+    "server-web": ["fastapi"],
+}
+extras["all"] = list(set.union(*(set(i) for i in extras.values())))
+
+
 with open("README.md") as f:
     description = f.read()
+
 
 setup(
     name="aiovisor",
@@ -30,5 +39,11 @@ setup(
     python_requires=">=3.7",
     setup_requires=setup_requirements,
     test_suite='tests',
-    tests_require=test_requirements
+    tests_require=test_requirements,
+    extras_require=extras,
+    entry_points={
+        "console_scripts": [
+            "aiovisor=aiovisor.server.cli:main"
+        ]
+    },
 )
