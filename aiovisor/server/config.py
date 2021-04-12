@@ -112,7 +112,10 @@ def config_main(cfg):
 
 def load_config(config_file):
     config = load_config_raw(config_file)
-    return dict(
+    result = dict(
         main=config_main(config.get("main", {})),
         programs=config_programs(config.get("programs", {}))
     )
+    if "web" in config:
+        result["web"] = dict(config["web"])
+    return result

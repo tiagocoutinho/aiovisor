@@ -15,7 +15,7 @@ test_requirements = ['pytest', 'pytest-cov']
 extras = {
     "server-toml": ["toml"],
     "server-yaml": ["pyyaml"],
-    "server-web": ["fastapi"],
+    "server-web": ["fastapi", "hypercorn"],
 }
 extras["all"] = list(set.union(*(set(i) for i in extras.values())))
 

@@ -1,14 +1,10 @@
 import enum
 import time
 import asyncio
-import logging
 import subprocess
 
 
-from ..util import is_posix
-
-
-log = logging.getLogger(__package__)
+from ..util import is_posix, signal, log
 
 
 class ProcessState(enum.IntEnum):
@@ -74,10 +70,13 @@ class Process:
         return args, kwargs
 
     def change_state(self, state):
-        if state == self.state:
+        old_state = self.state
+        if state == old_state:
             return
-        self.log.info("State changed from %s to %s", self.state.name, state.name)
         self.state = state
+        self.log.info("State changed from %s to %s", old_state.name, state.name)
+        sig = signal("process_state")
+        sig.send(self, old_state=old_state, new_state=state)
 
     def pid(self):
         if self.proc is not None:
@@ -109,14 +108,20 @@ class Process:
             # process was stopped before reached running, either by error or
             # by user command
             return_code = await wait
-            self.change_state(ProcessState.Exited)
-            return return_code
-        self.change_state(ProcessState.Running)
-        return await wait
+            state = ProcessState.Exited
+        else:
+            self.change_state(ProcessState.Running)
+            return_code = await wait
+            if self.state == ProcessState.Stopping:
+                state = ProcessState.Stopped
+            else:
+                state = ProcessState.Exited
+        self.change_state(state)
+        return return_code
 
     async def terminate(self):
-        if self.proc is not None:
-            self.task.cancel()
-            self.proc.terminate()
-            await self.proc.wait()
-            self.task = None
+        proc = self.proc
+        if proc is not None and proc.returncode is None:
+            self.change_state(ProcessState.Stopping)
+            proc.terminate()
+            await self.task
