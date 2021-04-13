@@ -13,12 +13,14 @@ app = FastAPI()
 
 @app.get("/processes")
 def processes():
-    return {p.name:p.config for p in app.procs}
+    return {p.name:p.config for p in app.server.procs}
 
 
-def web_server(config, processes, shutdown_trigger):
-    log.info("Preparing web api...")
+
+
+def web_server(config, server, shutdown_trigger):
+    log.info("Preparing web app...")
     cfg = Config()
     cfg.bind = config["bind"]
-    app.procs = processes
+    app.server = server
     return serve(app, cfg, shutdown_trigger=shutdown_trigger)
