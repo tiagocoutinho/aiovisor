@@ -16,6 +16,9 @@ def processes():
     return {p.name:p.config for p in app.server.procs}
 
 
+@app.get("/state")
+def state():
+    return {"state": app.server.state.name}
 
 
 def web_server(config, server, shutdown_trigger):

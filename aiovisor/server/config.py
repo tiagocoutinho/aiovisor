@@ -101,6 +101,15 @@ def config_logging(cfg):
     return result
 
 
+def config_web(cfg):
+    result = dict(
+        bind="127.0.0.1:8000",
+        debug=False
+    )
+    result.update(cfg)
+    return result
+
+
 def config_main(cfg):
     result = dict(
         name=os.uname(),
@@ -112,10 +121,8 @@ def config_main(cfg):
 
 def load_config(config_file):
     config = load_config_raw(config_file)
-    result = dict(
+    return dict(
         main=config_main(config.get("main", {})),
-        programs=config_programs(config.get("programs", {}))
+        programs=config_programs(config.get("programs", {})),
+        web=config_web(config.get("web", {})),
     )
-    if "web" in config:
-        result["web"] = dict(config["web"])
-    return result
