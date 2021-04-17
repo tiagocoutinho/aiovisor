@@ -15,7 +15,7 @@ class ServerState(enum.IntEnum):
     Stopped = 0
     Starting = 1
     Running = 2
-    ShuttingDown = 3
+    Stopping = 3
 
 
 class Server:
@@ -23,7 +23,7 @@ class Server:
     def __init__(self, config_file):
         self.config_file = config_file
         self.config = None
-        self.procs = []
+        self.procs = {}
         self.state = ServerState.Stopped
 
     async def __aenter__(self):
@@ -34,11 +34,9 @@ class Server:
         await self.stop()
 
     async def stop(self):
-        log.info("Shutting down...")
-        self.change_state(ServerState.ShuttingDown)
-        stops = (proc.terminate() for proc in self.procs)
+        self.change_state(ServerState.Stopping)
+        stops = (proc.terminate() for proc in self.procs.values())
         await asyncio.gather(*stops)
-        log.info("Shutdown complete")
         self.change_state(ServerState.Stopped)
 
     def change_state(self, state):
@@ -71,9 +69,9 @@ class Server:
             asyncio.set_child_watcher(child_watcher)
 
     async def serve_forever(self):
-        programs =  self.config["programs"]
+        programs = self.config["programs"]
         web = self.config.get("web")
-        self.procs = [Process(name, cfg) for name, cfg in programs.items()]
+        self.procs = {name: Process(name, cfg) for name, cfg in programs.items()}
 
         stop_trigger = asyncio.Event()
 
@@ -88,13 +86,13 @@ class Server:
         server = asyncio.create_task(web_server(web, self, stop_trigger.wait))
         self.change_state(ServerState.Running)
 
-        starts = (proc.start() for proc in self.procs)
+        starts = (proc.start() for proc in self.procs.values())
         await asyncio.gather(*starts)
 
         await server
 
-    async def stop_processes(self, names):
-        pass
+    def process(self, name):
+        return self.procs[name]
 
 
 async def run(config_file):

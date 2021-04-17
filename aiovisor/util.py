@@ -10,3 +10,7 @@ log = logging.getLogger(__package__)
 
 
 is_posix = os.name == "posix"
+
+
+class AIOVisorError(Exception):
+    pass
