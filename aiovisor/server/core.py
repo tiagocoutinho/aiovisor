@@ -1,5 +1,7 @@
 import os
 import enum
+import time
+import socket
 import asyncio
 import logging.config
 from signal import SIGTERM, SIGINT
@@ -24,7 +26,10 @@ class Server:
         self.config_file = config_file
         self.config = None
         self.procs = {}
+        self.start_time = None
         self.state = ServerState.Stopped
+        self.pid = os.getpid()
+        self.hostname = socket.gethostname()
 
     async def __aenter__(self):
         self.setup()
@@ -32,6 +37,15 @@ class Server:
 
     async def __aexit__(self, exc_type, exc_value, tb):
         await self.stop()
+
+    def info(self):
+        return dict(
+            self.config["main"],
+            state=self.state.name,
+            start_time=self.start_time,
+            pid=self.pid,
+            hostname=self.hostname,
+        )
 
     async def stop(self):
         self.change_state(ServerState.Stopping)
@@ -50,10 +64,11 @@ class Server:
 
     def setup(self):
         self.change_state(ServerState.Starting)
+        self.start_time = time.time()
         self.config = load_config(self.config_file)
         main = self.config["main"]
         logging.config.dictConfig(main["logging"])
-        log.info("Starting (PID=%d)...", os.getpid())
+        log.info("Starting (PID=%d)...", self.pid)
 
         if is_posix:
             # python 3.9 has pidchildwatcher but some distributions (ex: conda)
