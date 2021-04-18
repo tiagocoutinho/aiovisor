@@ -52,7 +52,8 @@ class Process:
 
     def info(self):
         return dict(
-            self.config, name=self.name, state=self.state.name,
+            self.config,
+            state=self.state.name,
             start_time=self.start_time,
             return_code=self.returncode(),
             pid=self.pid(),

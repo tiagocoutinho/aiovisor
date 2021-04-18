@@ -74,6 +74,7 @@ def load_config_raw(filename):
 
 def config_program(name, cfg):
     result = dict(
+        name=name,
         environment=None,
         directory=None,
         exitcodes=[0],
