@@ -45,7 +45,7 @@ class Server:
             return
         self.state = state
         log.info("State changed from %s to %s", old_state.name, state.name)
-        sig = signal("process_state")
+        sig = signal("server_state")
         sig.send(self, old_state=old_state, new_state=state)
 
     def setup(self):
