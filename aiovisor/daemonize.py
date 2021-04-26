@@ -39,7 +39,7 @@ def prepare_pidfile(pidfile):
     try:
         # Try to get an exclusive lock on the file. This will fail if another
         # process has the file locked.
-        r = fcntl.flock(lockfile, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        fcntl.flock(lockfile, fcntl.LOCK_EX | fcntl.LOCK_NB)
     except IOError:
         lockfile.close()
         # Restore pid file content
