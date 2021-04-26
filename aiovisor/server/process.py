@@ -4,8 +4,18 @@ import asyncio
 import resource
 import subprocess
 
+try:
+    import psutil
+except ModuleNotFoundError:
+    psutil = None
 
 from ..util import is_posix, signal, log, AIOVisorError
+
+
+PSUTIL_ATTRS = (
+    "cmdline", "cpu_times", "create_time", "cwd", "exe", "memory_full_info",
+    "name", "num_ctx_switches", "num_fds", "num_threads", "open_files"
+)
 
 
 class ProcessState(enum.IntEnum):
@@ -40,6 +50,19 @@ STARTABLE_STATES = {
 }
 
 
+def get_psutil(pid):
+    if psutil is None or pid is None:
+        return {}
+    try:
+        proc = psutil.Process(pid)
+        return {
+            k: v._asdict() if isinstance(v, tuple) else v
+            for k, v in proc.as_dict(PSUTIL_ATTRS).items()
+        }
+    except psutil.NoSuchProcess:
+        return {}
+
+
 class Process:
 
     def __init__(self, name, config):
@@ -52,12 +75,16 @@ class Process:
         self.task = None
 
     def info(self):
+        pid = self.pid()
+        state = self.state
         return dict(
-            self.config,
-            state=self.state.name,
-            start_time=self.start_time,
-            return_code=self.returncode(),
-            pid=self.pid(),
+            config=self.config,
+            state=dict(
+                state=state.name,
+                start_time=self.start_time,
+                return_code=self.returncode(),
+                pid=pid),
+            psutil=get_psutil(pid)
         )
 
     def _create_process_args(self):
