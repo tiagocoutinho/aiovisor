@@ -94,7 +94,9 @@ async def event_stream(request):
         if await request.is_disconnected():
             log.info("Client %s disconnected from stream", request.client)
             break
-        yield dict(data=await queue.get())
+        data = await queue.get()
+        log.info("Sending %s to %s", data["event_type"], request.client)
+        yield dict(data=data)
     pstate.disconnect(on_process_state_event)
     sstate.disconnect(on_server_state_event)
 
