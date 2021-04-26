@@ -1,6 +1,7 @@
 import enum
 import time
 import asyncio
+import resource
 import subprocess
 
 
@@ -70,6 +71,16 @@ class Process:
         if is_posix:
             kwargs["start_new_session"] = True
             kwargs["user"] = self.config["user"]
+            resources = self.config["resources"]
+            if resources:
+                def preexec_fn():
+                    for key, value in resources.items():
+                        if value is None:
+                            continue
+                        res = getattr(resource, "RLIMIT_" + key.upper())
+                        soft, hard = resource.getrlimit(res)
+                        resource.setrlimit(res, (value, hard))
+                kwargs["preexec_fn"] = preexec_fn
         else:
             kwargs["creationflags"] = [subprocess.CREATE_NEW_PROCESS_GROUP]
         return args, kwargs
@@ -98,10 +109,10 @@ class Process:
         if not self.state.is_startable():
             raise AIOVisorError(
                 f"{self.name!r} not in startable state (is {self.state.name})")
-        self.change_state(ProcessState.Starting)
         args, kwargs = self._create_process_args()
-        self.start_time = time.time()
         self.proc = await asyncio.create_subprocess_exec(*args, **kwargs)
+        self.start_time = time.time()
+        self.change_state(ProcessState.Starting)
         self.task = asyncio.create_task(self._run(self.proc))
 
     async def _run(self, proc):

@@ -80,7 +80,8 @@ def config_program(name, cfg):
         exitcodes=[0],
         startsecs=1,
         user=None,
-        umask=-1 if is_posix else None
+        umask=-1 if is_posix else None,
+        resources={},
     )
     result.update(cfg)
     cmd = result["command"]
