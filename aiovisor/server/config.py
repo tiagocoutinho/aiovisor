@@ -104,11 +104,15 @@ def config_logging(cfg):
 
 
 def config_web(cfg):
-    result = dict(
-        bind="127.0.0.1:8000",
-        debug=False
-    )
-    result.update(cfg)
+    result = dict(cfg)
+    if "uvicorn" in result:
+        uvicorn = dict(log_config=None)
+        uvicorn.update(result["uvicorn"])
+        # need to force asyncio event loop because at the moment
+        # uvloop.subprocess_exec does not support "user" keyword argument
+        # (using uvloop is 0.15.2)
+        uvicorn["loop"] = "asyncio"
+        result["uvicorn"] = uvicorn
     return result
 
 
