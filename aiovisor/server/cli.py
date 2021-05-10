@@ -1,10 +1,9 @@
-import logging
 import pathlib
 import argparse
-import functools
+import logging.config
 
-from ..util import log
-from .web import app
+from ..util import log, setup_event_loop
+from .web import web_app, run_app
 from .core import AIOVisor
 from .config import load_config
 
@@ -15,19 +14,25 @@ def prepare_logging(config):
     log.info("Starting...")
 
 
-def web_server(app, config):
-    import uvicorn
-    cfg = config["web"]["uvicorn"]
-    return functools.partial(uvicorn.run, app, **cfg)
-
-
 def run(config_file):
+    async def startup(app):
+        await aiovisor.start()
+
+    async def shutdown(app):
+        await aiovisor.stop()
+
+    async def init():
+        setup_event_loop()
+        app = web_app()
+        app["aiovisor"] = aiovisor
+        app.on_startup.append(startup)
+        app.on_shutdown.append(shutdown)
+        return app
+
     config = load_config(config_file)
     prepare_logging(config)
     aiovisor = AIOVisor(config)
-    app.aiovisor = aiovisor
-    ws = web_server(app, config)
-    ws()
+    run_app(init(), **config["web"]["aiohttp"])
 
 
 def main(args=None):

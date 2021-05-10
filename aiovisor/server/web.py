@@ -1,69 +1,55 @@
 import json
 import asyncio
-from fastapi import FastAPI, Request, status, HTTPException, BackgroundTasks
-from fastapi.responses import RedirectResponse
-from fastapi.exception_handlers import http_exception_handler
-from fastapi.staticfiles import StaticFiles
-from sse_starlette.sse import EventSourceResponse
 
-from ..util import log, signal, AIOVisorError, setup_event_loop
+from aiohttp import web
+
+from ..util import log, signal
 
 
 log = log.getChild("web")
 
+routes = web.RouteTableDef()
 
-app = FastAPI()
-app.mount("/static", StaticFiles(packages=["aiovisor.server"]),
-          name="static")
-
-
-@app.exception_handler(AIOVisorError)
-async def aiovisor_error_handler(request: Request, error: AIOVisorError):
-    return await http_exception_handler(request, HTTPException(
-        status_code=status.HTTP_400_BAD_REQUEST,
-        detail=error.args[0]))
+run_app = web.run_app
 
 
-def get_process(name):
-    try:
-        return app.aiovisor.process(name)
-    except KeyError:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Process {name!r} not found")
+@routes.get("/processes")
+async def processes(request):
+    aiovisor = request.app["aiovisor"]
+    return web.json_response(
+        {name: p.info() for name, p in aiovisor.procs.items()}
+    )
 
 
-@app.get("/")
-def index():
-    return RedirectResponse("/static/index.html")
+@routes.get("/process/info/{name}")
+async def process_info(request):
+    aiovisor = request.app["aiovisor"]
+    name = request.match_info["name"]
+    process = aiovisor.process(name)
+    return web.json_response(process.info())
 
 
-@app.get("/processes")
-def processes():
-    return {name: p.info() for name, p in app.aiovisor.procs.items()}
+@routes.get("/state")
+async def state(request):
+    aiovisor = request.app["aiovisor"]
+    return web.json_response({"state": aiovisor.state.name})
 
 
-@app.get("/process/info/{name}")
-def process_info(name: str):
-    return get_process(name).info()
-
-
-@app.get("/state")
-def state():
-    return {"state": app.aiovisor.state.name}
-
-
-@app.post("/process/stop/{name}")
-async def process_stop(name: str):
-    process = get_process(name)
+@routes.post("/process/stop/{name}")
+async def process_stop(request):
+    aiovisor = request.app["aiovisor"]
+    name = request.match_info["name"]
+    process = aiovisor.process(name)
     await process.terminate()
     return {"result": "ACK"}
 
 
-@app.post("/process/start/{name}")
-async def process_start(name: str, background_tasks: BackgroundTasks):
-    process = get_process(name)
-    background_tasks.add_task(process.start)
+@routes.post("/process/start/{name}")
+async def process_start(request):
+    aiovisor = request.app["aiovisor"]
+    name = request.match_info["name"]
+    process = aiovisor.process(name)
+    await process.start()  # TODO: Convert to background task
     return {"result": "ACK"}
 
 
@@ -100,17 +86,23 @@ async def event_stream(request):
     sstate.disconnect(on_server_state_event)
 
 
+"""
 @app.get("/stream")
 async def stream(request: Request):
     return EventSourceResponse(event_stream(request))
 
-
 @app.on_event("startup")
 async def startup_event():
     setup_event_loop()
-    await app.aiovisor.start()
+    await app["aiovisor"].start()
 
 
 @app.on_event("shutdown")
 async def shutdown_event():
-    await app.aiovisor.stop()
+    await app["aiovisor"].stop()
+"""
+
+def web_app():
+    app = web.Application()
+    app.add_routes(routes)
+    return app

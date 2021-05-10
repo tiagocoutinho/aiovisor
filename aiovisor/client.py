@@ -1,11 +1,12 @@
 import json
-import httpx
+import aiohttp
 
 
 class AIOVisor:
 
     def __init__(self, base_url):
-        self.client = httpx.AsyncClient(base_url=base_url)
+        self.base_url = base_url
+        self.client = aiohttp.ClientSession()
 
     async def __aenter__(self):
         return self
@@ -23,17 +24,22 @@ class AIOVisor:
                     yield json.loads(chunk[5:])
 
     async def state(self):
-        return (await self.client.get("/state")).json()
+        response = await self.client.get(f"{self.base_url}/state")
+        return await response.json()
 
     async def processes(self):
-        return (await self.client.get("/processes")).json()
+        response = await self.client.get(f"{self.base_url}/processes")
+        return await response.json()
 
     async def process_info(self, name):
-        return (await self.client.get(f"/process/info/{name}")).json()
+        response = await self.client.get(f"{self.base_url}/process/info/{name}")
+        return await response.json()
 
     async def process_start(self, name):
-        return (await self.client.post(f"/process/start/{name}")).json()
+        response = await self.client.post(f"{self.base_url}/process/start/{name}")
+        return await response.json()
 
     async def process_stop(self, name):
-        return (await self.client.post(f"/process/stop/{name}")).json()
+        response = await self.client.post(f"{self.base_url}/process/stop/{name}")
+        return await response.json()
 
