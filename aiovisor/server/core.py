@@ -52,6 +52,7 @@ class AIOVisor:
         self.procs = {name: Process(name, cfg) for name, cfg in programs.items()}
         starts = (proc.start() for proc in self.procs.values())
         await asyncio.gather(*starts)
+        self.change_state(State.Running)
 
     async def stop(self):
         self.change_state(State.Stopping)
