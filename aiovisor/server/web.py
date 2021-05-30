@@ -45,7 +45,7 @@ async def process_stop(request):
     name = request.match_info["name"]
     process = aiovisor.process(name)
     await process.terminate()
-    return {"result": "ACK"}
+    return web.json_response({"result": "ACK"})
 
 
 @routes.post("/process/start/{name}")
@@ -54,7 +54,7 @@ async def process_start(request):
     name = request.match_info["name"]
     process = aiovisor.process(name)
     await process.start()  # TODO: Convert to background task
-    return {"result": "ACK"}
+    return web.json_response({"result": "ACK"})
 
 
 """
@@ -157,7 +157,7 @@ async def on_shutdown(app):
     clients = set(app["clients"])
     if clients:
         # ugly hack: wait for server_state to be sent to all WS clients
-        await asyncio.sleep(1)
+        await asyncio.sleep(0.1)
         for client in clients:
             await client.close()
 
