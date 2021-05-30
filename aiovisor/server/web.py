@@ -1,16 +1,20 @@
-import json
 import asyncio
+import pathlib
 
 from aiohttp import web
 
-from ..util import log, signal
+from ..util import log, signal, setup_event_loop
 
 
 log = log.getChild("web")
+this_dir = pathlib.Path(__file__).parent
 
 routes = web.RouteTableDef()
 
-run_app = web.run_app
+
+@routes.get("/")
+async def index(request):
+    return web.FileResponse(this_dir / "static" / "index.html")
 
 
 @routes.get("/processes")
@@ -53,6 +57,7 @@ async def process_start(request):
     return {"result": "ACK"}
 
 
+"""
 async def event_stream(request):
     def on_server_state_event(sender, old_state, new_state):
         queue.put_nowait(dict(
@@ -86,7 +91,6 @@ async def event_stream(request):
     sstate.disconnect(on_server_state_event)
 
 
-"""
 @app.get("/stream")
 async def stream(request: Request):
     return EventSourceResponse(event_stream(request))
@@ -102,7 +106,72 @@ async def shutdown_event():
     await app["aiovisor"].stop()
 """
 
-def web_app():
+
+@routes.get("/ws")
+async def ws(request):
+    def on_server_state_event(sender, old_state, new_state):
+        queue.put_nowait(dict(
+            event_type="server_state",
+            old_state=old_state.name,
+            new_state=new_state.name,
+            server=sender.info(),
+        ))
+    def on_process_state_event(sender, old_state, new_state):
+        queue.put_nowait(dict(
+            event_type="process_state",
+            old_state=old_state.name,
+            new_state=new_state.name,
+            process=sender.info(),
+        ))
+
+    ws = web.WebSocketResponse()
+    await ws.prepare(request)
+
+    log.info("Client %s connected to stream", request.remote)
+    request.app["clients"].add(ws)
+    try:
+        sstate = signal("server_state")
+        pstate = signal("process_state")
+        sstate.connect(on_server_state_event)
+        pstate.connect(on_process_state_event)
+        queue = asyncio.Queue()
+        while True:
+            data = await queue.get()
+            log.info("Sending %s to %s", data["event_type"], request.remote)
+            await ws.send_json(data)
+        pstate.disconnect(on_process_state_event)
+        sstate.disconnect(on_server_state_event)
+    except ConnectionResetError:
+        log.info("ws connection reset")
+    finally:
+        request.app["clients"].remove(ws)
+    return ws
+
+
+async def on_startup(app):
+    await app["aiovisor"].start()
+
+
+async def on_shutdown(app):
+    await app["aiovisor"].stop()
+    clients = set(app["clients"])
+    if clients:
+        # ugly hack: wait for server_state to be sent to all WS clients
+        await asyncio.sleep(1)
+        for client in clients:
+            await client.close()
+
+
+async def web_app(aiovisor):
+    setup_event_loop()
     app = web.Application()
     app.add_routes(routes)
+    app["aiovisor"] = aiovisor
+    app["clients"] = set()
+    app.on_startup.append(on_startup)
+    app.on_shutdown.append(on_shutdown)
     return app
+
+
+def run_app(aiovisor, config):
+    web.run_app(web_app(aiovisor), **config)
