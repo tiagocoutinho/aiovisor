@@ -1,18 +1,56 @@
-<html>
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+  </head>
   <body>
-    <script>
-      var ws = new WebSocket("ws://" + window.location.host + "/ws");
-      console.log("ws: ", ws);
-      ws.onopen = function(e) {
-	  console.log("ws connected!");
-      }
-      ws.onmessage = function(e) {
-	  const data = JSON.parse(e.data);
-          document.getElementById('response').innerText = data.event_type;
-          console.log(e);
-      }
-    </script>
     <h1>Response from server:</h1>
-    <div id="response"></div>
+    <ul id="responses"></ul>
+    <script>
+      function connect() {
+	  console.log("Connecting...")
+	  let sock = new WebSocket("ws://" + window.location.host + "/ws");
+	  sock.onopen = onOpen;
+	  sock.onmessage = onMessage;
+	  sock.onclose = onClose;
+	  sock.state = "closed";
+	  return sock;
+      }
+      function addItem(text) {
+	  const item = document.createElement("li");
+	  item.appendChild(document.createTextNode(text));
+	  list.appendChild(item);
+      }
+      function onOpen(e) {
+	  e.target.state = "open";
+	  addItem("Connected!");
+	  console.log(e);
+      }
+      function onMessage(e) {
+	  console.log(e);
+	  const data = JSON.parse(e.data);
+	  var text = data.event_type;
+	  if (data.event_type === "process_state") {
+	      text = `${data.process.config.name} changed from ${data.old_state} to ${data.new_state}`;
+	  }
+	  else if (data.event_type === "server_state") {
+	      text = `SERVER changed from ${data.old_state} to ${data.new_state}`;
+	  }
+          addItem(text);
+      }
+      function onClose(e) {
+	  let was_open = e.target.state === "open";
+	  e.target.state = "closed";
+	  console.log(e);
+	  if (was_open) {
+	      addItem("Closed!");
+	  }
+	  ws = setTimeout(() => { ws = connect(); }, 5000);
+      }
+
+      var ws = connect();
+      var list = document.getElementById('responses');
+
+    </script>
   </body>
 </html>
