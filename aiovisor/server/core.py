@@ -56,7 +56,7 @@ class AIOVisor:
 
     async def stop(self):
         self.change_state(State.Stopping)
-        stops = (proc.terminate() for proc in self.procs.values())
+        stops = (proc.stop() for proc in self.procs.values())
         await asyncio.gather(*stops)
         self.change_state(State.Stopped)
 

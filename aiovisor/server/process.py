@@ -164,7 +164,7 @@ class Process:
             self.change_state(state)
         return return_code
 
-    async def terminate(self):
+    async def stop(self):
         proc = self.proc
         if proc is not None and proc.returncode is None:
             self.change_state(ProcessState.Stopping)

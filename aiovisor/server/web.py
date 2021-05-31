@@ -44,7 +44,7 @@ async def process_stop(request):
     aiovisor = request.app["aiovisor"]
     name = request.match_info["name"]
     process = aiovisor.process(name)
-    await process.terminate()
+    await process.stop()
     return web.json_response({"result": "ACK"})
 
 
