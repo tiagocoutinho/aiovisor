@@ -144,19 +144,22 @@ class Process:
 
     async def _run(self, proc):
         startsecs = self.config["startsecs"]
-        wait = asyncio.create_task(proc.wait())
+        wait_ended = asyncio.create_task(proc.wait())
         done, _ = await asyncio.wait(
-            (wait,), timeout=startsecs, return_when=asyncio.FIRST_COMPLETED)
+            (wait_ended,), timeout=startsecs, return_when=asyncio.FIRST_COMPLETED)
         if done:
             # process was stopped before reached running, either by error or
             # by user command
-            return_code = await wait
-            self.change_state(ProcessState.Backoff)
-            # TODO: handle retries
-            self.change_state(ProcessState.Exited)
+            return_code = await wait_ended
+            if self.state == ProcessState.Stopping:
+                self.change_state(ProcessState.Stopped)
+            else:
+                self.change_state(ProcessState.Backoff)
+                # TODO: handle retries
+                self.change_state(ProcessState.Exited)
         else:
             self.change_state(ProcessState.Running)
-            return_code = await wait
+            return_code = await wait_ended
             if self.state == ProcessState.Stopping:
                 state = ProcessState.Stopped
             else:
