@@ -83,6 +83,9 @@ def config_program(name, cfg):
         umask=-1 if is_posix else None,
         resources={},
     )
+    if is_posix:
+        import signal
+        result["stopsignal"] = signal.SIGTERM
     result.update(cfg)
     cmd = result["command"]
     if isinstance(cmd, str):

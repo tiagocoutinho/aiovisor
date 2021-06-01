@@ -130,7 +130,7 @@ class Process:
             return self.proc.returncode
 
     async def start(self):
-        self.log.info("Starting %r", self.config["command"])
+        self.log.info("Starting %r", self.config["name"])
         if self.pid() is not None and self.returncode() is None:
             raise AIOVisorError(f"{self.name!r} already running!")
         if not self.state.is_startable():
@@ -171,5 +171,8 @@ class Process:
         proc = self.proc
         if proc is not None and proc.returncode is None:
             self.change_state(ProcessState.Stopping)
-            proc.terminate()
+            if is_posix:
+                proc.send_signal(self.config["stopsignal"])
+            else:
+                proc.terminate()
             await self.task
