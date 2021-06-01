@@ -25,6 +25,7 @@ class AIOVisor:
         self.state = State.Stopped
         self.pid = os.getpid()
         self.hostname = socket.gethostname()
+        self.log = log.getChild("core")
 
     async def __aenter__(self):
         if self.state is State.Stopped:
@@ -65,7 +66,7 @@ class AIOVisor:
         if state == old_state:
             return
         self.state = state
-        log.info("State changed from %s to %s", old_state.name, state.name)
+        self.log.info("State changed from %s to %s", old_state.name, state.name)
         sig = signal("server_state")
         sig.send(self, old_state=old_state, new_state=state)
 
