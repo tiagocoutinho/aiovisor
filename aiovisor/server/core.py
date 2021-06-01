@@ -50,7 +50,11 @@ class AIOVisor:
         self.change_state(State.Starting)
         self.start_time = time.time()
         programs = self.config["programs"]
-        self.procs = {name: Process(name, cfg) for name, cfg in programs.items()}
+        self.procs = {
+            name: Process(name, cfg)
+            for name, cfg in programs.items()
+            if cfg["autostart"]
+        }
         starts = (proc.start() for proc in self.procs.values())
         await asyncio.gather(*starts)
         self.change_state(State.Running)

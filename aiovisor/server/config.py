@@ -79,6 +79,7 @@ def config_program(name, cfg):
         directory=None,
         exitcodes=[0],
         startsecs=1,
+        autostart=True,
         user=None,
         umask=-1 if is_posix else None,
         resources={},
