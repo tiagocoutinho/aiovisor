@@ -92,7 +92,6 @@ class Process:
         self.stop_time = None
         self.log = log.getChild(f"{type(self).__name__}.{name}")
         self.proc = None
-        self.task = None
 
     @property
     def is_running(self):
@@ -168,7 +167,7 @@ class Process:
             raise AIOVisorError(
                 f"{self.name!r} not in startable state (is {self.state.name})"
             )
-        self.task = asyncio.create_task(self._run())
+        asyncio.create_task(self._run())
 
     async def _run(self):
         args, kwargs = self._create_process_args()
