@@ -84,7 +84,8 @@ class Process:
         self.name = name
         self.config = config
         self.state = ProcessState.Stopped
-        self.start_time = 0
+        self.start_time = None
+        self.stop_time = None
         self.log = log.getChild(f"{type(self).__name__}.{name}")
         self.proc = None
         self.task = None
@@ -113,7 +114,8 @@ class Process:
             state=dict(
                 state=state.name,
                 start_time=self.start_time,
-                return_code=self.returncode(),
+                stop_time=self.stop_time,
+                return_code=self.returncode,
                 pid=pid,
             ),
             psutil=get_psutil(pid),
@@ -209,12 +211,9 @@ class Process:
             return
 
         return_code = await wait_ended
-        if self.state == ProcessState.Stopping:
-            state = ProcessState.Stopped
-        else:
-            state = ProcessState.Exited
-        self.change_state(state)
-
+        if state not in {ProcessState.Stopping, ProcessState.Stopped}:
+            # Process finished by itself
+            self.change_state(ProcessState.Exited)
         return return_code
 
     async def stop(self):
@@ -222,9 +221,27 @@ class Process:
             self.change_state(ProcessState.Stopped)
             return
         proc = self.proc
-        if proc is not None and proc.returncode is None:
-            self.change_state(ProcessState.Stopping)
-            if is_posix:
-                proc.send_signal(self.config["stopsignal"])
-            else:
-                proc.terminate()
+        if proc is None or proc.returncode is not None:
+            return
+        start_stop_time = time.monotonic()
+        self.change_state(ProcessState.Stopping)
+        if is_posix:
+            proc.send_signal(self.config["stopsignal"])
+        else:
+            proc.terminate()
+        wait_ended = asyncio.create_task(proc.wait())
+        stopwaitsecs = self.config["stopwaitsecs"]
+        done, _ = await asyncio.wait(
+            (wait_ended,), timeout=stopwaitsecs, return_when=asyncio.FIRST_COMPLETED
+        )
+        if not done:
+            self.log.warning(
+                "Refused to stop %g seconds. Going in for the kill", stopwaitsecs
+            )
+            proc.kill()
+        return_code = await wait_ended
+        end_stop_time = time.monotonic()
+        self.stop_time = time.time()
+        self.change_state(ProcessState.Stopped)
+        self.log.info("Stopped after %g seconds", end_stop_time - start_stop_time)
+        return return_code

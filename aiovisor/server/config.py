@@ -80,6 +80,7 @@ def config_program(name, cfg):
         startsecs=1,
         startretries=3,
         autostart=True,
+        stopwaitsecs=10,
         user=None,
         umask=-1 if is_posix else None,
         resources={},
