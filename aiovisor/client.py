@@ -3,7 +3,6 @@ import aiohttp
 
 
 class AIOVisor:
-
     def __init__(self, base_url):
         self.base_url = base_url
         self.client = aiohttp.ClientSession()
@@ -42,4 +41,3 @@ class AIOVisor:
     async def process_stop(self, name):
         response = await self.client.post(f"{self.base_url}/process/stop/{name}")
         return await response.json()
-

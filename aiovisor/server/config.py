@@ -33,9 +33,7 @@ from ..util import is_posix
 DEFAULT_LOG_CONFIG = {
     "version": 1,
     "formatters": {
-        "standard": {
-            "format": "%(asctime)s %(levelname)8s %(name)s: %(message)s"
-        }
+        "standard": {"format": "%(asctime)s %(levelname)8s %(name)s: %(message)s"}
     },
     "handlers": {
         "console": {
@@ -43,33 +41,34 @@ DEFAULT_LOG_CONFIG = {
             "formatter": "standard",
         }
     },
-    "root": {
-        "handlers": ['console'],
-        "level": "INFO"
-    }
+    "root": {"handlers": ["console"], "level": "INFO"},
 }
 
 
 def load_config_raw(filename):
     filename = pathlib.Path(filename)
     ext = filename.suffix
-    if ext == '.toml':
+    if ext == ".toml":
         from toml import load
-    elif ext in {'.yml', '.yaml'}:
+    elif ext in {".yml", ".yaml"}:
         import yaml
+
         def load(fobj):
             return yaml.load(fobj, Loader=yaml.Loader)
-    elif ext == '.json':
+
+    elif ext == ".json":
         from json import load
-    elif ext == '.py':
+    elif ext == ".py":
+
         def load(fobj):
             r = {}
             exec(fobj.read(), None, r)
             return r
+
     else:
-        raise ValueError(f'Unsupported file {filename.suffix!r}')
-    with open(filename)as fobj:
-       return load(fobj)
+        raise ValueError(f"Unsupported file {filename.suffix!r}")
+    with open(filename) as fobj:
+        return load(fobj)
 
 
 def config_program(name, cfg):
@@ -79,6 +78,7 @@ def config_program(name, cfg):
         directory=None,
         exitcodes=[0],
         startsecs=1,
+        startretries=3,
         autostart=True,
         user=None,
         umask=-1 if is_posix else None,
@@ -86,6 +86,7 @@ def config_program(name, cfg):
     )
     if is_posix:
         import signal
+
         result["stopsignal"] = signal.SIGTERM
     result.update(cfg)
     cmd = result["command"]
@@ -99,10 +100,7 @@ def config_programs(cfg):
 
 
 def config_logging(cfg):
-    result = dict(
-        version=1,
-        disable_existing_loggers=False
-    )
+    result = dict(version=1, disable_existing_loggers=False)
     result.update(cfg)
     return result
 

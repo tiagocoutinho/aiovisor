@@ -17,7 +17,6 @@ class State(enum.IntEnum):
 
 
 class AIOVisor:
-
     def __init__(self, config):
         self.config = config
         self.procs = {}
@@ -76,5 +75,3 @@ class AIOVisor:
 
     def process(self, name):
         return self.procs[name]
-
-

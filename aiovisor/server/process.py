@@ -13,8 +13,17 @@ from ..util import is_posix, signal, log, AIOVisorError
 
 
 PSUTIL_ATTRS = (
-    "cmdline", "cpu_times", "create_time", "cwd", "exe", "memory_full_info",
-    "name", "num_ctx_switches", "num_fds", "num_threads", "open_files"
+    "cmdline",
+    "cpu_times",
+    "create_time",
+    "cwd",
+    "exe",
+    "memory_full_info",
+    "name",
+    "num_ctx_switches",
+    "num_fds",
+    "num_threads",
+    "open_files",
 )
 
 
@@ -29,24 +38,31 @@ class ProcessState(enum.IntEnum):
     Fatal = 6
     Unknown = 1000
 
+    @property
     def is_stopped(self):
         return self in STOPPED_STATES
 
+    @property
     def is_running(self):
         return self in RUNNING_STATES
 
+    @property
     def is_startable(self):
         return self in STARTABLE_STATES
 
 
 STOPPED_STATES = {
-    ProcessState.Stopped, ProcessState.Exited, ProcessState.Fatal, ProcessState.Unknown
+    ProcessState.Stopped,
+    ProcessState.Exited,
+    ProcessState.Fatal,
+    ProcessState.Unknown,
 }
-RUNNING_STATES = {
-    ProcessState.Starting, ProcessState.Running, ProcessState.Backoff
-}
+RUNNING_STATES = {ProcessState.Starting, ProcessState.Running, ProcessState.Backoff}
 STARTABLE_STATES = {
-    ProcessState.Stopped, ProcessState.Exited, ProcessState.Fatal, ProcessState.Backoff
+    ProcessState.Stopped,
+    ProcessState.Exited,
+    ProcessState.Fatal,
+    ProcessState.Backoff,
 }
 
 
@@ -64,7 +80,6 @@ def get_psutil(pid):
 
 
 class Process:
-
     def __init__(self, name, config):
         self.name = name
         self.config = config
@@ -74,8 +89,24 @@ class Process:
         self.proc = None
         self.task = None
 
+    @property
+    def is_running(self):
+        if self.proc is None:
+            return False
+        return self.proc.returncode is None
+
+    @property
+    def pid(self):
+        if self.is_running:
+            return self.proc.pid
+
+    @property
+    def returncode(self):
+        if self.proc is not None:
+            return self.proc.returncode
+
     def info(self):
-        pid = self.pid()
+        pid = self.pid
         state = self.state
         return dict(
             config=self.config,
@@ -83,8 +114,9 @@ class Process:
                 state=state.name,
                 start_time=self.start_time,
                 return_code=self.returncode(),
-                pid=pid),
-            psutil=get_psutil(pid)
+                pid=pid,
+            ),
+            psutil=get_psutil(pid),
         )
 
     def _create_process_args(self):
@@ -100,6 +132,7 @@ class Process:
             kwargs["user"] = self.config["user"]
             resources = self.config["resources"]
             if resources:
+
                 def preexec_fn():
                     for key, value in resources.items():
                         if value is None:
@@ -107,6 +140,7 @@ class Process:
                         res = getattr(resource, "RLIMIT_" + key.upper())
                         soft, hard = resource.getrlimit(res)
                         resource.setrlimit(res, (value, hard))
+
                 kwargs["preexec_fn"] = preexec_fn
         else:
             kwargs["creationflags"] = [subprocess.CREATE_NEW_PROCESS_GROUP]
@@ -117,57 +151,76 @@ class Process:
         if state == old_state:
             return
         self.state = state
-        self.log.info("State changed from %s to %s", old_state.name, state.name)
+        self.log.debug("State changed from %s to %s", old_state.name, state.name)
         sig = signal("process_state")
         sig.send(self, old_state=old_state, new_state=state)
 
-    def pid(self):
-        if self.proc is not None:
-            return self.proc.pid
-
-    def returncode(self):
-        if self.proc is not None:
-            return self.proc.returncode
-
     async def start(self):
-        self.log.info("Starting %r", self.config["name"])
-        if self.pid() is not None and self.returncode() is None:
+        if self.is_running:
             raise AIOVisorError(f"{self.name!r} already running!")
-        if not self.state.is_startable():
+        if not self.state.is_startable:
             raise AIOVisorError(
-                f"{self.name!r} not in startable state (is {self.state.name})")
-        args, kwargs = self._create_process_args()
-        self.proc = await asyncio.create_subprocess_exec(*args, **kwargs)
-        self.start_time = time.time()
-        self.change_state(ProcessState.Starting)
-        self.task = asyncio.create_task(self._run(self.proc))
+                f"{self.name!r} not in startable state (is {self.state.name})"
+            )
+        self.task = asyncio.create_task(self._run())
 
-    async def _run(self, proc):
+    async def _run(self):
+        args, kwargs = self._create_process_args()
+        name = self.config["name"]
+        attempts = self.config["startretries"] + 1
         startsecs = self.config["startsecs"]
-        wait_ended = asyncio.create_task(proc.wait())
-        done, _ = await asyncio.wait(
-            (wait_ended,), timeout=startsecs, return_when=asyncio.FIRST_COMPLETED)
-        if done:
-            # process was stopped before reached running, either by error or
-            # by user command
-            return_code = await wait_ended
-            if self.state == ProcessState.Stopping:
-                self.change_state(ProcessState.Stopped)
+        attempt = 0
+        while attempt < attempts:
+            attempt += 1
+            self.log.info("Starting %r (attempt %d of %d)", name, attempt, attempts)
+            self.start_time = time.time()
+            self.change_state(ProcessState.Starting)
+            self.proc = await asyncio.create_subprocess_exec(*args, **kwargs)
+            wait_ended = asyncio.create_task(self.proc.wait())
+            done, _ = await asyncio.wait(
+                (wait_ended,), timeout=startsecs, return_when=asyncio.FIRST_COMPLETED
+            )
+            if done:
+                # process was stopped before reached running
+                return_code = await wait_ended
+                if self.state == ProcessState.Stopping:
+                    # by user command
+                    state = ProcessState.Stopped
+                elif attempt < attempts:
+                    self.log.info(
+                        "Failed to start %r (attempt %d of %d)", name, attempt, attempts
+                    )
+                    state = ProcessState.Backoff
+                else:
+                    self.log.warning(
+                        "Give up start %r (attempt %d of %d)", name, attempt, attempts
+                    )
+                    state = ProcessState.Fatal
             else:
-                self.change_state(ProcessState.Backoff)
-                # TODO: handle retries
-                self.change_state(ProcessState.Exited)
-        else:
-            self.change_state(ProcessState.Running)
-            return_code = await wait_ended
-            if self.state == ProcessState.Stopping:
-                state = ProcessState.Stopped
-            else:
-                state = ProcessState.Exited
+                self.log.info("Sucessfull start of %r", name)
+                state = ProcessState.Running
             self.change_state(state)
+            if state == ProcessState.Backoff:
+                await asyncio.sleep(attempt)
+            else:
+                break
+
+        if state != ProcessState.Running:
+            return
+
+        return_code = await wait_ended
+        if self.state == ProcessState.Stopping:
+            state = ProcessState.Stopped
+        else:
+            state = ProcessState.Exited
+        self.change_state(state)
+
         return return_code
 
     async def stop(self):
+        if self.state == ProcessState.Backoff:
+            self.change_state(ProcessState.Stopped)
+            return
         proc = self.proc
         if proc is not None and proc.returncode is None:
             self.change_state(ProcessState.Stopping)
@@ -175,4 +228,3 @@ class Process:
                 proc.send_signal(self.config["stopsignal"])
             else:
                 proc.terminate()
-            await self.task

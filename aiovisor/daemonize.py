@@ -7,11 +7,13 @@ import resource
 import contextlib
 
 
-log = logging.getLogger('aiovisor.daemonize')
+log = logging.getLogger("aiovisor.daemonize")
 
 
 @contextlib.contextmanager
-def daemonize(app, pidfile=None, user=None, group=None, chdir=None, umask=0o27, foreground=False):
+def daemonize(
+    app, pidfile=None, user=None, group=None, chdir=None, umask=0o27, foreground=False
+):
     lockfile = prepare_pidfile(pidfile)
     parent_pid = os.getpid()
     try:
@@ -114,5 +116,3 @@ def _daemonize(app, lockfile, user, group, chdir, umask, foreground):
 
     lockfile.write("%s" % (os.getpid()))
     lockfile.flush()
-
-

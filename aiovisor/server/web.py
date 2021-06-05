@@ -20,9 +20,7 @@ async def index(request):
 @routes.get("/processes")
 async def processes(request):
     aiovisor = request.app["aiovisor"]
-    return web.json_response(
-        {name: p.info() for name, p in aiovisor.procs.items()}
-    )
+    return web.json_response({name: p.info() for name, p in aiovisor.procs.items()})
 
 
 @routes.get("/process/info/{name}")
@@ -110,19 +108,24 @@ async def shutdown_event():
 @routes.get("/ws")
 async def ws(request):
     def on_server_state_event(sender, old_state, new_state):
-        queue.put_nowait(dict(
-            event_type="server_state",
-            old_state=old_state.name,
-            new_state=new_state.name,
-            server=sender.info(),
-        ))
+        queue.put_nowait(
+            dict(
+                event_type="server_state",
+                old_state=old_state.name,
+                new_state=new_state.name,
+                server=sender.info(),
+            )
+        )
+
     def on_process_state_event(sender, old_state, new_state):
-        queue.put_nowait(dict(
-            event_type="process_state",
-            old_state=old_state.name,
-            new_state=new_state.name,
-            process=sender.info(),
-        ))
+        queue.put_nowait(
+            dict(
+                event_type="process_state",
+                old_state=old_state.name,
+                new_state=new_state.name,
+                process=sender.info(),
+            )
+        )
 
     ws = web.WebSocketResponse()
     await ws.prepare(request)
