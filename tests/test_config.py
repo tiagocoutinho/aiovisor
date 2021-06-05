@@ -1,21 +1,17 @@
 import pathlib
+import platform
 import contextlib
 
 import pytest
 
-from aiovisor import config
+from aiovisor.server import config
 
 
 C1_RAW = {
-    "main": {
-        "base": "/hello",
-        "directory": "{main[base]}/world"
-    },
-    "program": {
+    "programs": {
         "web-server-lab1": {
-            "command": "{main[base]}/exec something",
-            "groups": ["web", "lab1"],
-            "priority": 9
+            "command": "/hello/exec something",
+            "tags": ["web", "lab1"],
         }
     }
 }
@@ -23,16 +19,28 @@ C1_RAW = {
 
 C1_PARSED = {
     "main": {
-        "base": "/hello",
-        "directory": "/hello/world"
+        "name": platform.uname(),
+        "logging": dict(config.DEFAULT_LOG_CONFIG)
     },
-    "program": {
+    "web": {},
+    "programs": {
         "web-server-lab1": {
-            "command": "/hello/exec something",
-            "groups": ["web", "lab1"],
-            "priority": 9
+            "name": "web-server-lab1",
+            "environment": None,
+            "directory": None,
+            "exitcodes": [0],
+            "startsecs": 1,
+            "startretries": 3,
+            "autostart": True,
+            "stopwaitsecs": 10,
+            "stopsignal": 15,
+            "user": None,
+            "umask": -1,
+            "resources": {},
+            "command":["/hello/exec", "something"],
+            "tags": ["web", "lab1"],
         }
-    }
+    },
 }
 
 ctx_result = contextlib.nullcontext
@@ -41,13 +49,14 @@ ctx_result = contextlib.nullcontext
 def local_file(fname):
     return pathlib.Path(__file__).parent / fname
 
+
 @pytest.mark.parametrize(
     "config_raw, config_parsed",
     [(C1_RAW, C1_PARSED)],
     ids=["basic"]
 )
 def test_parse_config(config_raw, config_parsed):
-    assert config.parse_config(config_raw, config_raw) == config_parsed
+    assert config.parse_raw_config(config_raw) == config_parsed
 
 
 @pytest.mark.parametrize(

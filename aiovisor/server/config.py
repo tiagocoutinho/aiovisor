@@ -32,6 +32,7 @@ from ..util import is_posix
 
 DEFAULT_LOG_CONFIG = {
     "version": 1,
+    "disable_existing_loggers": False,
     "formatters": {
         "standard": {"format": "%(asctime)s %(levelname)8s %(name)s: %(message)s"}
     },
@@ -123,10 +124,14 @@ def config_main(cfg):
     return result
 
 
-def load_config(config_file):
-    config = load_config_raw(config_file)
+def parse_raw_config(config):
     return dict(
         main=config_main(config.get("main", {})),
         programs=config_programs(config.get("programs", {})),
         web=config_web(config.get("web", {})),
     )
+
+
+def load_config(config_file):
+    config = load_config_raw(config_file)
+    return parse_raw_config(config)
