@@ -23,9 +23,9 @@ tags = ["web", "lab01"]
 ```
 """
 
-import os
 import shlex
 import pathlib
+import platform
 
 from ..util import is_posix
 
@@ -116,7 +116,7 @@ def config_web(cfg):
 
 def config_main(cfg):
     result = dict(
-        name=os.uname(),
+        name=platform.uname(),
     )
     result.update(cfg)
     result["logging"] = config_logging(result.get("logging", DEFAULT_LOG_CONFIG))
