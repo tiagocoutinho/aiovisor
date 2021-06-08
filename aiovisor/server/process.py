@@ -171,16 +171,15 @@ class Process:
 
     async def _run(self):
         args, kwargs = self._create_process_args()
-        name = self.config["name"]
         attempts = self.config["startretries"] + 1
         startsecs = self.config["startsecs"]
         attempt = 0
         while attempt < attempts:
             attempt += 1
-            self.log.info("Starting %r (attempt %d of %d)", name, attempt, attempts)
-            self.start_time = time.time()
+            self.log.info("Starting (attempt %d of %d)", attempt, attempts)
             self.change_state(ProcessState.Starting)
             self.proc = await asyncio.create_subprocess_exec(*args, **kwargs)
+            self.start_time = time.time()
             wait_ended = asyncio.create_task(self.proc.wait())
             done, _ = await asyncio.wait(
                 (wait_ended,), timeout=startsecs, return_when=asyncio.FIRST_COMPLETED
@@ -193,16 +192,16 @@ class Process:
                     state = ProcessState.Stopped
                 elif attempt < attempts:
                     self.log.info(
-                        "Failed to start %r (attempt %d of %d)", name, attempt, attempts
+                        "Failed to start (attempt %d of %d)", attempt, attempts
                     )
                     state = ProcessState.Backoff
                 else:
                     self.log.warning(
-                        "Give up start %r (attempt %d of %d)", name, attempt, attempts
+                        "Give up start (attempt %d of %d)", attempt, attempts
                     )
                     state = ProcessState.Fatal
             else:
-                self.log.info("Sucessfull start of %r", name)
+                self.log.info("Successfull start")
                 state = ProcessState.Running
             self.change_state(state)
             if state == ProcessState.Backoff:
@@ -214,8 +213,11 @@ class Process:
             return
 
         return_code = await wait_ended
-        if state not in {ProcessState.Stopping, ProcessState.Stopped}:
+        if self.state not in {ProcessState.Stopping, ProcessState.Stopped}:
             # Process finished by itself
+            self.stop_time = time.time()
+            dt = self.stop_time - self.start_time
+            self.log.info("Process exited by itself after %g seconds", dt)
             self.change_state(ProcessState.Exited)
         return return_code
 
@@ -239,12 +241,12 @@ class Process:
         )
         if not done:
             self.log.warning(
-                "Refused to stop %g seconds. Going in for the kill", stopwaitsecs
+                "Refused to stop in %g seconds. Going in for the kill", stopwaitsecs
             )
             proc.kill()
         return_code = await wait_ended
         end_stop_time = time.monotonic()
         self.stop_time = time.time()
         self.change_state(ProcessState.Stopped)
-        self.log.info("Stopped after %g seconds", end_stop_time - start_stop_time)
+        self.log.info("Stopped (took %g seconds)", end_stop_time - start_stop_time)
         return return_code
