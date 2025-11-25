@@ -9,7 +9,7 @@
     <script>
       function connect() {
 	  console.log("Connecting...")
-	  let sock = new WebSocket("ws://" + window.location.host + "/ws");
+	  let sock = new WebSocket("ws://" + window.location.host + "/api/ws");
 	  sock.onopen = onOpen;
 	  sock.onmessage = onMessage;
 	  sock.onclose = onClose;

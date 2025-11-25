@@ -9,21 +9,21 @@ from ..util import log, signal, setup_event_loop
 log = log.getChild("web")
 this_dir = pathlib.Path(__file__).parent
 
-routes = web.RouteTableDef()
+api = web.RouteTableDef()
+html = web.RouteTableDef()
 
-
-@routes.get("/")
+@html.get("/")
 async def index(request):
     return web.FileResponse(this_dir / "static" / "index.html")
 
 
-@routes.get("/processes")
+@api.get("/processes")
 async def processes(request):
     aiovisor = request.app["aiovisor"]
     return web.json_response({name: p.info() for name, p in aiovisor.procs.items()})
 
 
-@routes.get("/process/info/{name}")
+@api.get("/process/info/{name}")
 async def process_info(request):
     aiovisor = request.app["aiovisor"]
     name = request.match_info["name"]
@@ -31,13 +31,13 @@ async def process_info(request):
     return web.json_response(process.info())
 
 
-@routes.get("/state")
+@api.get("/state")
 async def state(request):
     aiovisor = request.app["aiovisor"]
     return web.json_response({"state": aiovisor.state.name})
 
 
-@routes.post("/process/stop/{name}")
+@api.post("/process/stop/{name}")
 async def process_stop(request):
     aiovisor = request.app["aiovisor"]
     name = request.match_info["name"]
@@ -46,7 +46,7 @@ async def process_stop(request):
     return web.json_response({"result": "ACK"})
 
 
-@routes.post("/process/start/{name}")
+@api.post("/process/start/{name}")
 async def process_start(request):
     aiovisor = request.app["aiovisor"]
     name = request.match_info["name"]
@@ -105,7 +105,7 @@ async def shutdown_event():
 """
 
 
-@routes.get("/ws")
+@api.get("/ws")
 async def ws(request):
     def on_server_state_event(sender, old_state, new_state):
         queue.put_nowait(
@@ -166,15 +166,20 @@ async def on_shutdown(app):
 
 
 async def web_app(aiovisor):
-    setup_event_loop()
+    api_app = web.Application()
+    api_app.add_routes(api)
+    api_app["aiovisor"] = aiovisor
+    api_app["clients"] = set()
+    api_app.on_startup.append(on_startup)
+    api_app.on_shutdown.append(on_shutdown)
+
     app = web.Application()
-    app.add_routes(routes)
-    app["aiovisor"] = aiovisor
-    app["clients"] = set()
-    app.on_startup.append(on_startup)
-    app.on_shutdown.append(on_shutdown)
+    app.add_routes(html)
+    app.add_subapp("/api/", api_app)
+
     return app
 
 
 def run_app(aiovisor, config):
+    setup_event_loop()
     web.run_app(web_app(aiovisor), **config)
