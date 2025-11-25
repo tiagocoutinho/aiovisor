@@ -1,12 +1,9 @@
 import enum
 import time
 import asyncio
+import resource
 import subprocess
 
-try:
-    import resource
-except ModuleNotFoundError:
-    resource = None
 
 try:
     import psutil
