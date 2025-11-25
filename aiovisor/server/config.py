@@ -50,7 +50,7 @@ def load_config_raw(filename):
     filename = pathlib.Path(filename)
     ext = filename.suffix
     if ext == ".toml":
-        from toml import load
+        from tomllib import load
     elif ext in {".yml", ".yaml"}:
         import yaml
 
@@ -68,7 +68,7 @@ def load_config_raw(filename):
 
     else:
         raise ValueError(f"Unsupported file {filename.suffix!r}")
-    with open(filename) as fobj:
+    with open(filename, "rb") as fobj:
         return load(fobj)
 
 
