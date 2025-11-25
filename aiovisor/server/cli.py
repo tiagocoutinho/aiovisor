@@ -18,7 +18,7 @@ def run(config_file):
     config = load_config(config_file)
     prepare_logging(config)
     aiovisor = AIOVisor(config)
-    run_app(aiovisor, config["web"]["aiohttp"])
+    run_app(aiovisor, config["web"].get("aiohttp", {}))
 
 
 def main(args=None):
