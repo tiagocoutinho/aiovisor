@@ -30,7 +30,6 @@ PSUTIL_ATTRS = (
 
 
 class ProcessState(enum.IntEnum):
-
     Stopped = 0
     Starting = 1
     Running = 2
@@ -109,11 +108,19 @@ class Process:
 
     @property
     def start_datetime(self):
-        return None if self.start_time is None else datetime.datetime.fromtimestamp(self.start_time)
+        return (
+            None
+            if self.start_time is None
+            else datetime.datetime.fromtimestamp(self.start_time)
+        )
 
     @property
     def stop_datetime(self):
-        return None if self.stop_time is None else datetime.datetime.fromtimestamp(self.stop_time)
+        return (
+            None
+            if self.stop_time is None
+            else datetime.datetime.fromtimestamp(self.stop_time)
+        )
 
     @property
     def psutil(self):
@@ -180,13 +187,14 @@ class Process:
         asyncio.create_task(self._run())
 
     async def _run(self):
+        info, warning = self.log.info, self.log.warning
         args, kwargs = self._create_process_args()
         attempts = self.config["startretries"] + 1
         startsecs = self.config["startsecs"]
         attempt = 0
         while attempt < attempts:
             attempt += 1
-            self.log.info("Starting (attempt %d of %d)", attempt, attempts)
+            info("Starting (attempt %d of %d)", attempt, attempts)
             self.change_state(ProcessState.Starting)
             self.proc = await asyncio.create_subprocess_exec(*args, **kwargs)
             self.start_time = time.time()
@@ -201,17 +209,13 @@ class Process:
                     # by user command
                     state = ProcessState.Stopped
                 elif attempt < attempts:
-                    self.log.info(
-                        "Failed to start (attempt %d of %d)", attempt, attempts
-                    )
+                    info("Failed to start (attempt %d of %d)", attempt, attempts)
                     state = ProcessState.Backoff
                 else:
-                    self.log.warning(
-                        "Give up start (attempt %d of %d)", attempt, attempts
-                    )
+                    warning("Give up start (attempt %d of %d)", attempt, attempts)
                     state = ProcessState.Fatal
             else:
-                self.log.info("Successfull start")
+                info("Successfull start")
                 state = ProcessState.Running
             self.change_state(state)
             if state == ProcessState.Backoff:
