@@ -22,39 +22,23 @@ PAGE = """\
 <html lang="en">
 
 <head>
-  <title>{title}</title>
+  <title>AIOVisor {title}</title>
   <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
-  <script type="module"
-    src="https://cdn.jsdelivr.net/gh/starfederation/datastar@1.0.0-RC.6/bundles/datastar.js"></script>
-  <style>
-    .navbar {{
-      background-color: #303030;
-      color: white;
-      padding: 0px 20px;
-      position: fixed;
-      top: 0;
-      left: 0;
-      width: 100%;
-      height: 40px;
-      box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
-      z-index: 1000;
-      vertical-align: center;
-    }}
-    .panel {{
-      padding: 10px;
-    }}
-  </style>
+  <script type="module" src="static/datastar.js"></script>
 </head>
 
 <body style="margin: 0px; padding-top: 40px;">
-  <nav class="navbar">AIOVisor</nav>
-  <div class="panel">
+  <nav style="background-color: #aabbbb; position: fixed; width:100%; top: 0; padding: 10px 20px;">
+  AIOVisor {title}
+  </nav>
+  <div style="padding: 10px;">
     <div id="processes" data-init="@get('/processes')"></div>
   </div>
 </body>
 
 </html>
 """
+
 
 PROC_ROW = """\
 <tr id="{name}">
@@ -67,6 +51,10 @@ PROC_ROW = """\
   <td>{rss}</td>
   <td>{command}</td>
   <td>{executable}</td>
+  <td>
+    <button data-on:click="@post('/process/start/{name}')">Start</button>
+    <button data-on:click="@post('/process/stop/{name}')">Stop</button>
+  </td>
 </tr>
 """
 
@@ -83,6 +71,7 @@ PROCS_TABLE = """\
     <th scope="col">RSS</th>
     <th scope="col">Command</th>
     <th scope="col">Executable</th>
+    <th scope="col">Control</th>
   </tr>
   </thead>
   <tbody>
@@ -91,31 +80,44 @@ PROCS_TABLE = """\
 </table>
 """
 
-def null_text(v):
-    if isinstance(v, datetime.datetime):
-        return str(v) # v.ctime()
-    return "---" if v is None else str(v)
+
+def human_readable_bytes(num_bytes: int) -> str:
+    units = ["B", "KB", "MB", "GB", "TB", "PB"]
+    for unit in units:
+        if num_bytes < 1024:
+            return f"{num_bytes:.1f} {unit}"
+        num_bytes /= 1024
+
+    return f"{num_bytes:.1f} {units[-1]}"
+
+
+def to_text(value):
+    if isinstance(value, datetime.datetime):
+        return str(value)  # v.ctime()
+    return "---" if value is None else str(value)
+
 
 def proc_row(proc):
     info = proc.psutil
     if (rss := info.get("memory_full_info", {}).get("rss")) is not None:
-        rss = f"{rss / 1024 / 1024:.3f} MB"
+        rss = human_readable_bytes(rss)
     return PROC_ROW.format(
-        name=proc.name, 
-        state=proc.state.name, 
-        pid=null_text(proc.pid),
-        returncode=null_text(proc.returncode),
-        started=null_text(proc.start_datetime),
-        stopped=null_text(proc.stop_datetime),
-        rss=null_text(rss),
-        command=null_text(info.get("cmdline")),
-        executable=null_text(info.get("exe")),
+        name=proc.name,
+        state=proc.state.name,
+        pid=to_text(proc.pid),
+        returncode=to_text(proc.returncode),
+        started=to_text(proc.start_datetime),
+        stopped=to_text(proc.stop_datetime),
+        rss=to_text(rss),
+        command=to_text(info.get("cmdline")),
+        executable=to_text(info.get("exe")),
     )
 
 
 @routes.get("/")
 async def index(request):
-    return HTML(PAGE.format(title=request.app["aiovisor"].config["main"]["name"]))
+    aiovisor = request.app["aiovisor"]
+    return HTML(PAGE.format(title=aiovisor.config["main"]["name"]))
 
 
 @routes.get("/processes")
@@ -127,6 +129,32 @@ async def processes(request):
     return web.Response(text=table, content_type="text/html")
 
 
+@routes.post("/process/start/{name}")
+async def process_start(request):
+    aiovisor = request.app["aiovisor"]
+    name = request.match_info["name"]
+    process = aiovisor.process(name)
+    await process.start()
+    return web.Response(status=204)
+
+
+@routes.post("/process/stop/{name}")
+async def process_stop(request):
+    aiovisor = request.app["aiovisor"]
+    name = request.match_info["name"]
+    process = aiovisor.process(name)
+    await process.stop()
+    return web.Response(status=204)
+
+
+async def on_startup(app):
+    await app["aiovisor"].start()
+
+
+async def on_shutdown(app):
+    await app["aiovisor"].stop()
+
+
 async def web_app(aiovisor):
     setup_event_loop()
     app = web.Application()
@@ -135,7 +163,8 @@ async def web_app(aiovisor):
     app.add_routes(routes)
     api = await create_api(aiovisor)
     app.add_subapp("/api/", api)
-
+    app.on_startup.append(on_startup)
+    app.on_shutdown.append(on_shutdown)
     return app
 
 

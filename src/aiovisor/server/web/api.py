@@ -1,20 +1,13 @@
 import asyncio
-import pathlib
 
 from aiohttp import web
 
 from aiovisor.util import log, signal
 
 
-log = log.getChild("web.app")
-this_dir = pathlib.Path(__file__).parent
+log = log.getChild("web.api")
 
 api = web.RouteTableDef()
-
-
-@api.get("/")
-async def index(request):
-    return web.FileResponse(this_dir / "static" / "api.html")
 
 
 @api.get("/processes")
@@ -103,12 +96,7 @@ async def ws(request):
     return ws
 
 
-async def on_startup(app):
-    await app["aiovisor"].start()
-
-
 async def on_shutdown(app):
-    await app["aiovisor"].stop()
     clients = set(app["clients"])
     if clients:
         # ugly hack: wait for server_state to be sent to all WS clients
@@ -122,7 +110,5 @@ async def create_app(aiovisor):
     api_app.add_routes(api)
     api_app["aiovisor"] = aiovisor
     api_app["clients"] = set()
-    api_app.on_startup.append(on_startup)
     api_app.on_shutdown.append(on_shutdown)
     return api_app
-
