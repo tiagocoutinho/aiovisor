@@ -7,8 +7,6 @@ from aiovisor.util import log, setup_event_loop
 from aiovisor.server.web.api import create_app as create_api
 
 log = log.getChild("web.app")
-this_dir = pathlib.Path(__file__).parent
-static = this_dir / "static"
 
 routes = web.RouteTableDef()
 
@@ -39,7 +37,6 @@ PAGE = """\
 </html>
 """
 
-
 PROC_ROW = """\
 <tr id="{name}">
   <td>{name}</td>
@@ -50,7 +47,7 @@ PROC_ROW = """\
   <td>{stopped}</td>
   <td>{rss}</td>
   <td>{command}</td>
-  <td>{executable}</td>
+  <td>{proc_name}</td>
   <td>
     <button data-on:click="@post('/process/start/{name}')">Start</button>
     <button data-on:click="@post('/process/stop/{name}')">Stop</button>
@@ -70,7 +67,7 @@ PROCS_TABLE = """\
     <th scope="col">Stopped</th>
     <th scope="col">RSS</th>
     <th scope="col">Command</th>
-    <th scope="col">Executable</th>
+    <th scope="col">Process name</th>
     <th scope="col">Control</th>
   </tr>
   </thead>
@@ -110,7 +107,7 @@ def proc_row(proc):
         stopped=to_text(proc.stop_datetime),
         rss=to_text(rss),
         command=to_text(info.get("cmdline")),
-        executable=to_text(info.get("exe")),
+        proc_name=to_text(info.get("name")),
     )
 
 
@@ -159,7 +156,7 @@ async def web_app(aiovisor):
     setup_event_loop()
     app = web.Application()
     app["aiovisor"] = aiovisor
-    app.add_routes([web.static("/static", static)])
+    app.add_routes([web.static("/static", pathlib.Path(__file__).parent / "static")])
     app.add_routes(routes)
     api = await create_api(aiovisor)
     app.add_subapp("/api/", api)
