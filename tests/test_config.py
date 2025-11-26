@@ -19,7 +19,8 @@ C1_RAW = {
 
 C1_PARSED = {
     "main": {
-        "name": platform.uname(),
+        "name": platform.uname().node,
+        "uname": platform.uname(),
         "logging": dict(config.DEFAULT_LOG_CONFIG)
     },
     "web": {},

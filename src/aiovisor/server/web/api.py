@@ -3,18 +3,18 @@ import pathlib
 
 from aiohttp import web
 
-from ..util import log, signal, setup_event_loop
+from aiovisor.util import log, signal
 
 
-log = log.getChild("web")
+log = log.getChild("web.app")
 this_dir = pathlib.Path(__file__).parent
 
 api = web.RouteTableDef()
-html = web.RouteTableDef()
 
-@html.get("/")
+
+@api.get("/")
 async def index(request):
-    return web.FileResponse(this_dir / "static" / "index.html")
+    return web.FileResponse(this_dir / "static" / "api.html")
 
 
 @api.get("/processes")
@@ -55,56 +55,6 @@ async def process_start(request):
     return web.json_response({"result": "ACK"})
 
 
-"""
-async def event_stream(request):
-    def on_server_state_event(sender, old_state, new_state):
-        queue.put_nowait(dict(
-            event_type="server_state",
-            old_state=old_state.name,
-            new_state=new_state.name,
-            server=sender.info(),
-        ))
-    def on_process_state_event(sender, old_state, new_state):
-        queue.put_nowait(dict(
-            event_type="process_state",
-            old_state=old_state.name,
-            new_state=new_state.name,
-            process=sender.info(),
-        ))
-
-    log.info("Client %s connected to stream", request.client)
-    sstate = signal("server_state")
-    pstate = signal("process_state")
-    sstate.connect(on_server_state_event)
-    pstate.connect(on_process_state_event)
-    queue = asyncio.Queue()
-    while True:
-        if await request.is_disconnected():
-            log.info("Client %s disconnected from stream", request.client)
-            break
-        data = await queue.get()
-        log.info("Sending %s to %s", data["event_type"], request.client)
-        yield dict(data=json.dumps(data))
-    pstate.disconnect(on_process_state_event)
-    sstate.disconnect(on_server_state_event)
-
-
-@app.get("/stream")
-async def stream(request: Request):
-    return EventSourceResponse(event_stream(request))
-
-@app.on_event("startup")
-async def startup_event():
-    setup_event_loop()
-    await app["aiovisor"].start()
-
-
-@app.on_event("shutdown")
-async def shutdown_event():
-    await app["aiovisor"].stop()
-"""
-
-
 @api.get("/ws")
 async def ws(request):
     def on_server_state_event(sender, old_state, new_state):
@@ -138,12 +88,14 @@ async def ws(request):
         sstate.connect(on_server_state_event)
         pstate.connect(on_process_state_event)
         queue = asyncio.Queue()
-        while True:
-            data = await queue.get()
-            log.info("Sending %s to %s", data["event_type"], request.remote)
-            await ws.send_json(data)
-        pstate.disconnect(on_process_state_event)
-        sstate.disconnect(on_server_state_event)
+        try:
+            while True:
+                data = await queue.get()
+                log.info("Sending %s to %s", data["event_type"], request.remote)
+                await ws.send_json(data)
+        finally:
+            pstate.disconnect(on_process_state_event)
+            sstate.disconnect(on_server_state_event)
     except ConnectionResetError:
         log.info("ws connection reset")
     finally:
@@ -165,21 +117,12 @@ async def on_shutdown(app):
             await client.close()
 
 
-async def web_app(aiovisor):
+async def create_app(aiovisor):
     api_app = web.Application()
     api_app.add_routes(api)
     api_app["aiovisor"] = aiovisor
     api_app["clients"] = set()
     api_app.on_startup.append(on_startup)
     api_app.on_shutdown.append(on_shutdown)
+    return api_app
 
-    app = web.Application()
-    app.add_routes(html)
-    app.add_subapp("/api/", api_app)
-
-    return app
-
-
-def run_app(aiovisor, config):
-    setup_event_loop()
-    web.run_app(web_app(aiovisor), **config)

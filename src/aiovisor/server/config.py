@@ -116,8 +116,10 @@ def config_web(cfg):
 
 
 def config_main(cfg):
+    uname = platform.uname()
     result = dict(
-        name=platform.uname(),
+        uname=uname,
+        name=uname.node
     )
     result.update(cfg)
     result["logging"] = config_logging(result.get("logging", DEFAULT_LOG_CONFIG))

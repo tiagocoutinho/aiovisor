@@ -1,3 +1,4 @@
+import datetime
 import enum
 import time
 import asyncio
@@ -106,6 +107,18 @@ class Process:
         if self.proc is not None:
             return self.proc.returncode
 
+    @property
+    def start_datetime(self):
+        return None if self.start_time is None else datetime.datetime.fromtimestamp(self.start_time)
+
+    @property
+    def stop_datetime(self):
+        return None if self.stop_time is None else datetime.datetime.fromtimestamp(self.stop_time)
+
+    @property
+    def psutil(self):
+        return get_psutil(self.pid)
+
     def info(self):
         pid = self.pid
         state = self.state
@@ -118,7 +131,7 @@ class Process:
                 return_code=self.returncode,
                 pid=pid,
             ),
-            psutil=get_psutil(pid),
+            psutil=self.psutil,
         )
 
     def _create_process_args(self):
