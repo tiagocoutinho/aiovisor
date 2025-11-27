@@ -80,6 +80,15 @@ def get_psutil(pid):
         return {}
 
 
+async def wait_for(aw, timeout):
+    """Returns false if the awaitable is still running after the timeout"""
+    try:
+        await asyncio.wait_for(aw, timeout=timeout)
+    except asyncio.TimeoutError:
+        return False
+    return True
+
+
 class Process:
     def __init__(self, name, config):
         self.name = name
@@ -89,6 +98,7 @@ class Process:
         self.stop_time = None
         self.log = log.getChild(f"{type(self).__name__}.{name}")
         self.proc = None
+        self.last_error = None
 
     @property
     def is_running(self):
@@ -122,7 +132,6 @@ class Process:
             else datetime.datetime.fromtimestamp(self.stop_time)
         )
 
-    @property
     def psutil(self):
         return get_psutil(self.pid)
 
@@ -138,42 +147,55 @@ class Process:
                 return_code=self.returncode,
                 pid=pid,
             ),
-            psutil=self.psutil,
+            psutil=self.psutil(),
         )
 
+    def _pre_exec(self):
+        if not (resources := self.config["resources"]):
+            return
+        for key, value in resources.items():
+            if value is None:
+                continue
+            res = getattr(resource, "RLIMIT_" + key.upper())
+            soft, hard = resource.getrlimit(res)
+            resource.setrlimit(res, (value, hard))
+
     def _create_process_args(self):
-        args = self.config["command"]
+        if self.config["shell"]:
+            args = [self.config["command_line"]]
+        else:
+            args = self.config["command"]
         kwargs = dict(
             env=self.config["environment"],
             cwd=self.config["directory"],
             close_fds=True,
-            shell=False,
         )
         if is_posix:
             kwargs["start_new_session"] = True
             kwargs["user"] = self.config["user"]
-            resources = self.config["resources"]
-            if resources:
-
-                def preexec_fn():
-                    for key, value in resources.items():
-                        if value is None:
-                            continue
-                        res = getattr(resource, "RLIMIT_" + key.upper())
-                        soft, hard = resource.getrlimit(res)
-                        resource.setrlimit(res, (value, hard))
-
-                kwargs["preexec_fn"] = preexec_fn
+            kwargs["preexec_fn"] = self._pre_exec
         else:
             kwargs["creationflags"] = [subprocess.CREATE_NEW_PROCESS_GROUP]
         return args, kwargs
+
+    async def _create_process(self):
+        args, kwargs = self._create_process_args()
+        if self.config["shell"]:
+            create = asyncio.create_subprocess_shell
+        else:
+            create = asyncio.create_subprocess_exec
+        try:
+            return await create(*args, **kwargs)
+        except Exception as error:
+            self.log.error("Cannot start program: %r", error)
+            self.last_error = str(error)
 
     def change_state(self, state):
         old_state = self.state
         if state == old_state:
             return
         self.state = state
-        self.log.debug("State changed from %s to %s", old_state.name, state.name)
+        self.log.info("State changed from %s to %s", old_state.name, state.name)
         sig = signal("process_state")
         sig.send(self, old_state=old_state, new_state=state)
 
@@ -184,56 +206,55 @@ class Process:
             raise AIOVisorError(
                 f"{self.name!r} not in startable state (is {self.state.name})"
             )
-        asyncio.create_task(self._run())
+        asyncio.create_task(self._run(), name=self.name + "-loop")
 
-    async def _run(self):
-        info, warning = self.log.info, self.log.warning
-        args, kwargs = self._create_process_args()
+    async def _run_once(self, attempt):
         attempts = self.config["startretries"] + 1
         startsecs = self.config["startsecs"]
-        attempt = 0
+        self.log.info("Starting (attempt %d of %d)", attempt, attempts)
+        self.change_state(ProcessState.Starting)
+        if (proc := await self._create_process()) is None:
+            self.change_state(ProcessState.Fatal)
+            return
+        self.change_state(ProcessState.Starting)
+        self.proc = proc
+        self.start_time = time.time()
+        done = await wait_for(self.proc.wait(), timeout=startsecs)
+        if done:
+            # process was stopped before reached running
+            if self.state == ProcessState.Stopping:
+                # by user command
+                self.change_state(ProcessState.Stopped)
+            elif attempt < attempts:
+                self.log.warning("Failed to start (attempt %d of %d)", attempt, attempts)
+                self.change_state(ProcessState.Backoff)
+            else:
+                self.log.error("Give up start (attempt %d of %d)", attempt, attempts)
+                self.change_state(ProcessState.Fatal)
+        else:
+            self.log.info("Successfull start")
+            self.change_state(ProcessState.Running)
+
+    async def _run(self):
+        attempt, attempts = 0, self.config["startretries"] + 1
         while attempt < attempts:
             attempt += 1
-            info("Starting (attempt %d of %d)", attempt, attempts)
-            self.change_state(ProcessState.Starting)
-            self.proc = await asyncio.create_subprocess_exec(*args, **kwargs)
-            self.start_time = time.time()
-            wait_ended = asyncio.create_task(self.proc.wait())
-            done, _ = await asyncio.wait(
-                (wait_ended,), timeout=startsecs, return_when=asyncio.FIRST_COMPLETED
-            )
-            if done:
-                # process was stopped before reached running
-                return_code = await wait_ended
-                if self.state == ProcessState.Stopping:
-                    # by user command
-                    state = ProcessState.Stopped
-                elif attempt < attempts:
-                    info("Failed to start (attempt %d of %d)", attempt, attempts)
-                    state = ProcessState.Backoff
-                else:
-                    warning("Give up start (attempt %d of %d)", attempt, attempts)
-                    state = ProcessState.Fatal
-            else:
-                info("Successfull start")
-                state = ProcessState.Running
-            self.change_state(state)
-            if state == ProcessState.Backoff:
+            await self._run_once(attempt)
+            if self.state == ProcessState.Backoff:
                 await asyncio.sleep(attempt)
             else:
                 break
 
-        if state != ProcessState.Running:
+        if self.state != ProcessState.Running:
             return
 
-        return_code = await wait_ended
+        await self.proc.wait()
         if self.state not in {ProcessState.Stopping, ProcessState.Stopped}:
             # Process finished by itself
             self.stop_time = time.time()
             dt = self.stop_time - self.start_time
             self.log.info("Process exited by itself after %g seconds", dt)
             self.change_state(ProcessState.Exited)
-        return return_code
 
     async def stop(self):
         if self.state == ProcessState.Backoff:

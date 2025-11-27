@@ -1,9 +1,11 @@
+import asyncio
 import datetime
 import pathlib
 
-from aiohttp import web
+from aiohttp import ClientConnectionResetError, web
+from aiohttp_sse import sse_response
 
-from aiovisor.util import log, setup_event_loop
+from aiovisor.util import log, setup_event_loop, signal
 from aiovisor.server.web.api import create_app as create_api
 
 log = log.getChild("web.app")
@@ -13,6 +15,22 @@ routes = web.RouteTableDef()
 
 def HTML(text):
     return web.Response(text=text, content_type="text/html")
+
+
+START = "&#x23F5;"
+RESTART = "&#x21BA;"
+PAUSE = "&#x23F8;"
+STOP = "&#x23F9;"
+DELETE = "&#x2672;"
+KILL = "&#x1F571;"
+LOGS = "&#x2399;"
+ATTACH = "&#x2328;"
+
+
+BUTTON = """<button data-on:click="@post('{post}')" {attrs}>{text}</button>"""
+def Button(text, post, disabled=False):
+    attrs = ["disabled"] if disabled else [] 
+    return BUTTON.format(text=text, post=post, attrs=" ".join(attrs))
 
 
 PAGE = """\
@@ -27,36 +45,36 @@ PAGE = """\
 
 <body style="margin: 0px; padding-top: 40px;">
   <nav style="background-color: #aabbbb; position: fixed; width:100%; top: 0; padding: 10px 20px;">
-  AIOVisor {title}
+    AIOVisor {title}
   </nav>
   <div style="padding: 10px;">
-    <div id="processes" data-init="@get('/processes')"></div>
+    <div id="processes" data-init="@get('/processes/table')"></div>
   </div>
+  <div id="message"></div>
+
 </body>
 
 </html>
 """
 
 PROC_ROW = """\
-<tr id="{name}">
-  <td>{name}</td>
-  <td>{state}</td>
-  <td>{pid}</td>
-  <td>{returncode}</td>
-  <td>{started}</td>
-  <td>{stopped}</td>
-  <td>{rss}</td>
-  <td>{command}</td>
-  <td>{proc_name}</td>
-  <td>
-    <button data-on:click="@post('/process/start/{name}')">Start</button>
-    <button data-on:click="@post('/process/stop/{name}')">Stop</button>
-  </td>
-</tr>
+<tr id="{name}-process-row">\
+  <td>{name}</td>\
+  <td>{state}</td>\
+  <td>{pid}</td>\
+  <td>{returncode}</td>\
+  <td>{started}</td>\
+  <td>{stopped}</td>\
+  <td>{rss}</td>\
+  <td>{command}</td>\
+  <td>{proc_name}</td>\
+  <td>{control}</td>\
+  <td>{last_error}</td>\
+</tr>\
 """
 
 PROCS_TABLE = """\
-<table id="processes">
+<table id="processes" data-init="@get('/processes/table/events')">
   <thead>
   <tr>
     <th scope="col">Name</th>
@@ -69,6 +87,7 @@ PROCS_TABLE = """\
     <th scope="col">Command</th>
     <th scope="col">Process name</th>
     <th scope="col">Control</th>
+    <th scope="col">Last error</th>
   </tr>
   </thead>
   <tbody>
@@ -95,9 +114,13 @@ def to_text(value):
 
 
 def proc_row(proc):
-    info = proc.psutil
+    info = proc.psutil()
     if (rss := info.get("memory_full_info", {}).get("rss")) is not None:
         rss = human_readable_bytes(rss)
+    name, state = proc.name, proc.state
+    start = Button(START, f"/process/start/{name}", disabled=not state.is_startable)
+    stop = Button(STOP, f"/process/stop/{name}", disabled=state.is_stopped)
+    kill = Button(KILL, f"/process/kill/{name}", disabled=state.is_stopped)
     return PROC_ROW.format(
         name=proc.name,
         state=proc.state.name,
@@ -106,8 +129,10 @@ def proc_row(proc):
         started=to_text(proc.start_datetime),
         stopped=to_text(proc.stop_datetime),
         rss=to_text(rss),
+        last_error=to_text(proc.last_error or ""),
         command=to_text(info.get("cmdline")),
         proc_name=to_text(info.get("name")),
+        control="".join((start, stop, kill)),
     )
 
 
@@ -117,7 +142,7 @@ async def index(request):
     return HTML(PAGE.format(title=aiovisor.config["main"]["name"]))
 
 
-@routes.get("/processes")
+@routes.get("/processes/table")
 async def processes(request):
     aiovisor = request.app["aiovisor"]
     procs = map(proc_row, aiovisor.procs.values())
@@ -125,6 +150,24 @@ async def processes(request):
     table = PROCS_TABLE.format(rows=rows)
     return web.Response(text=table, content_type="text/html")
 
+
+@routes.get("/processes/table/events")
+async def processes_events(request):
+    def on_process_state_event(sender, old_state, new_state):
+        events.put_nowait(sender)
+    pstate = signal("process_state")
+    pstate.connect(on_process_state_event)    
+    events = asyncio.Queue()
+    async with sse_response(request) as resp:
+        while resp.is_connected():
+            proc = await events.get()
+            try:
+                row = proc_row(proc)
+                await resp.send(f'elements {row}', event="datastar-patch-elements")
+            except ClientConnectionResetError:
+                log.info("Client closed connection")
+        pstate.disconnect(on_process_state_event)
+    return resp
 
 @routes.post("/process/start/{name}")
 async def process_start(request):
@@ -163,6 +206,8 @@ async def web_app(aiovisor):
     app.on_startup.append(on_startup)
     app.on_shutdown.append(on_shutdown)
     return app
+
+
 
 
 def run_app(aiovisor, config):

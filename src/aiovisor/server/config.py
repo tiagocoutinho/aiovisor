@@ -85,6 +85,7 @@ def config_program(name, cfg):
         user=None,
         umask=-1 if is_posix else None,
         resources={},
+        shell=False,
     )
     if is_posix:
         import signal
@@ -93,7 +94,9 @@ def config_program(name, cfg):
     result.update(cfg)
     cmd = result["command"]
     if isinstance(cmd, str):
-        result["command"] = shlex.split(cmd)
+        cmd = shlex.split(cmd)
+        result["command"] = cmd
+    result["command_line"] = shlex.join(cmd)
     return result
 
 
