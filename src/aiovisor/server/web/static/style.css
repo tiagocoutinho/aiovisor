@@ -1,0 +1,79 @@
+table.processes {
+    width: 100%;
+}
+
+table.processes th {
+    color: white;
+    background-color: #3b82f6;
+    border-radius: 2px;
+    padding: 4px 0px;
+}
+
+table.processes th.name,
+th.process-name {
+    width: 180px;
+}
+
+table.processes th.state,
+th.pid,
+th.rss {
+    width: 80px;
+}
+
+table.processes th.started,
+th.stopped {
+    width: 220px;
+}
+
+table.processes tr {
+    height: 32px;
+}
+
+table.processes td.state {
+    text-align: center;
+    color: white;
+    border-radius: 2px;
+}
+
+table.processes td.state.running {
+    background-color: #045037;
+}
+
+table.processes td.state.starting {
+    background-color: blue;
+}
+
+table.processes td.state.stopping {
+    background-color: blueviolet;
+}
+
+table.processes td.state.stopped {
+    background-color: maroon;
+}
+
+table.processes td.state.exited {
+    background-color: orangered;
+}
+
+table.processes td.state.backoff {
+    background-color: darkgrey;
+}
+
+
+table.processes td.state.fatal {
+    background-color: magenta;
+    color: white;
+}
+
+nav.navbar {
+    background-color: #aabbbb;
+    position: fixed;
+    width: 100%;
+    top: 0;
+    padding: 10px 20px;
+}
+
+.error {
+    background-color: red;
+    color: white;
+}

@@ -51,6 +51,10 @@ class ProcessState(enum.IntEnum):
     def is_startable(self):
         return self in STARTABLE_STATES
 
+    @property
+    def is_stoppable(self):
+        return self in STOPPABLE_STATES
+
 
 STOPPED_STATES = {
     ProcessState.Stopped,
@@ -65,9 +69,15 @@ STARTABLE_STATES = {
     ProcessState.Fatal,
     ProcessState.Backoff,
 }
+STOPPABLE_STATES = {
+    ProcessState.Starting,
+    ProcessState.Running,
+    ProcessState.Backoff,
+    ProcessState.Unknown,
+}
 
 
-def get_psutil(pid):
+def get_ps(pid):
     if psutil is None or pid is None:
         return {}
     try:
@@ -99,6 +109,7 @@ class Process:
         self.log = log.getChild(f"{type(self).__name__}.{name}")
         self.proc = None
         self.last_error = None
+        self.last_returncode = None
 
     @property
     def is_running(self):
@@ -110,11 +121,6 @@ class Process:
     def pid(self):
         if self.is_running:
             return self.proc.pid
-
-    @property
-    def returncode(self):
-        if self.proc is not None:
-            return self.proc.returncode
 
     @property
     def start_datetime(self):
@@ -132,22 +138,22 @@ class Process:
             else datetime.datetime.fromtimestamp(self.stop_time)
         )
 
-    def psutil(self):
-        return get_psutil(self.pid)
+    def ps(self):
+        return get_ps(self.pid)
 
     def info(self):
-        pid = self.pid
-        state = self.state
         return dict(
+            name=self.name,
             config=self.config,
             state=dict(
-                state=state.name,
+                state=self.state,
                 start_time=self.start_time,
                 stop_time=self.stop_time,
-                return_code=self.returncode,
-                pid=pid,
+                last_returncode=self.last_returncode,
+                last_error=self.last_error,
+                pid=self.pid,
             ),
-            psutil=self.psutil(),
+            ps=self.ps(),
         )
 
     def _pre_exec(self):
@@ -208,9 +214,7 @@ class Process:
             )
         asyncio.create_task(self._run(), name=self.name + "-loop")
 
-    async def _run_once(self, attempt):
-        attempts = self.config["startretries"] + 1
-        startsecs = self.config["startsecs"]
+    async def _try_start(self, attempt, attempts):
         self.log.info("Starting (attempt %d of %d)", attempt, attempts)
         self.change_state(ProcessState.Starting)
         if (proc := await self._create_process()) is None:
@@ -218,15 +222,19 @@ class Process:
             return
         self.change_state(ProcessState.Starting)
         self.proc = proc
+        startsecs = self.config["startsecs"]
         self.start_time = time.time()
         done = await wait_for(self.proc.wait(), timeout=startsecs)
         if done:
             # process was stopped before reached running
+            self.last_returncode = self.proc.returncode
             if self.state == ProcessState.Stopping:
                 # by user command
                 self.change_state(ProcessState.Stopped)
             elif attempt < attempts:
-                self.log.warning("Failed to start (attempt %d of %d)", attempt, attempts)
+                self.log.warning(
+                    "Failed to start (attempt %d of %d)", attempt, attempts
+                )
                 self.change_state(ProcessState.Backoff)
             else:
                 self.log.error("Give up start (attempt %d of %d)", attempt, attempts)
@@ -239,27 +247,36 @@ class Process:
         attempt, attempts = 0, self.config["startretries"] + 1
         while attempt < attempts:
             attempt += 1
-            await self._run_once(attempt)
-            if self.state == ProcessState.Backoff:
-                await asyncio.sleep(attempt)
-            else:
+            await self._try_start(attempt, attempts)
+            if self.state != ProcessState.Backoff:
                 break
+            await asyncio.sleep(attempt)
 
         if self.state != ProcessState.Running:
             return
 
-        await self.proc.wait()
-        if self.state not in {ProcessState.Stopping, ProcessState.Stopped}:
-            # Process finished by itself
-            self.stop_time = time.time()
-            dt = self.stop_time - self.start_time
-            self.log.info("Process exited by itself after %g seconds", dt)
-            self.change_state(ProcessState.Exited)
+        self.last_returncode = await self.proc.wait()
+        if self.state in {ProcessState.Stopping, ProcessState.Stopped}:
+            return
+        # Process finished by itself
+        self.stop_time = time.time()
+        dt = self.stop_time - self.start_time
+        self.log.info("Process exited by itself after %g seconds", dt)
+        self.change_state(ProcessState.Exited)
 
     async def stop(self):
+        if self.state == ProcessState.Stopped:
+            raise AIOVisorError(f"{self.name!r} already stopped!")
+        if not self.state.is_stoppable:
+            raise AIOVisorError(
+                f"{self.name!r} not in stoppable state (is {self.state.name})"
+            )
         if self.state == ProcessState.Backoff:
             self.change_state(ProcessState.Stopped)
             return
+        return await self._stop()
+
+    async def _stop(self):
         proc = self.proc
         if proc is None or proc.returncode is not None:
             return
@@ -284,4 +301,27 @@ class Process:
         self.stop_time = time.time()
         self.change_state(ProcessState.Stopped)
         self.log.info("Stopped (took %g seconds)", end_stop_time - start_stop_time)
+        return return_code
+
+    async def kill(self):
+        if self.state == ProcessState.Stopped:
+            raise AIOVisorError(f"{self.name!r} already stopped!")
+        if not self.state.is_stoppable:
+            raise AIOVisorError(
+                f"{self.name!r} not in stoppable state (is {self.state.name})"
+            )
+        if self.state == ProcessState.Backoff:
+            self.change_state(ProcessState.Stopped)
+            return
+        proc = self.proc
+        if proc is None or proc.returncode is not None:
+            return
+        start_kill_time = time.monotonic()
+        self.change_state(ProcessState.Stopping)
+        proc.kill()
+        return_code = await proc.wait()
+        end_kill_time = time.monotonic()
+        self.stop_time = time.time()
+        self.change_state(ProcessState.Stopped)
+        self.log.info("Killed (took %g seconds)", end_kill_time - start_kill_time)
         return return_code
